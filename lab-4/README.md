@@ -5,7 +5,7 @@ Course: [Network programming](https://github.com/itmo-ict-faculty/network-progra
 Year: 2024/2025  
 Group: K3321  
 Author: Vdovina Yaroslava Dmitrievna  
-Lab: Lab3  
+Lab: Lab4  
 Date of create: 02.10.2025  
 Date of finished: 02.10.2025  
 
