@@ -1,0 +1,33 @@
+---
+- name: Dump NetBox objects to files (read-only)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files:
+    - group_vars/netbox.yml
+
+  vars:
+    endpoints:
+      - dcim/devices
+      - dcim/interfaces
+      - ipam/ip-addresses
+      - dcim/sites
+      - dcim/device-roles
+      - dcim/device-types
+      - dcim/manufacturers
+      - dcim/platforms
+      - tenancy/tenants
+
+  tasks:
+    - name: Ensure artifacts dir
+      ansible.builtin.file:
+        path: ./artifacts
+        state: directory
+        mode: '0755'
+
+    - name: Fetch each endpoint and save as JSON
+      ansible.builtin.include_tasks: nb_dump_ep.yml
+      loop: "{{ endpoints }}"
+      loop_control:
+        loop_var: ep

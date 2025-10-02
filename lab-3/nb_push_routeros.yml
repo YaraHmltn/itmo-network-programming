@@ -1,0 +1,119 @@
+---
+- name: Build runtime inventory from NetBox
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files:
+    - group_vars/netbox.yml     # netbox_url, netbox_token, nb_tag=lab3
+    - secret.yml                # router_user, router_password
+
+  vars:
+    nb_filter: "{{ '?limit=0' + ( '&tag=' + nb_tag if (nb_tag|default('')|length>0) else '' ) }}"
+
+  tasks:
+    - name: Get devices (tagged)
+      ansible.builtin.uri:
+        url: "{{ netbox_url | trim('/') }}/api/dcim/devices/{{ nb_filter }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        return_content: yes
+        status_code: 200
+        validate_certs: no
+      register: nb_devs
+
+    - name: Get IP addresses (tagged)
+      ansible.builtin.uri:
+        url: "{{ netbox_url | trim('/') }}/api/ipam/ip-addresses/{{ nb_filter }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        return_content: yes
+        status_code: 200
+        validate_certs: no
+      register: nb_ips
+
+    - name: Build helper dicts
+      ansible.builtin.set_fact:
+        dev_list: "{{ nb_devs.json.results | default([]) }}"
+        ip_list:  "{{ nb_ips.json.results  | default([]) }}"
+
+    - name: Add hosts from NetBox into runtime group
+      vars:
+        dev_name: "{{ item.name }}"
+        dev_id:   "{{ item.id }}"
+        ips_for_dev: >-
+          {{
+            ip_list
+            | selectattr('assigned_object','defined')
+            | selectattr('assigned_object.device','defined')
+            | selectattr('assigned_object.device.name','equalto',dev_name)
+            | list
+          }}
+        mgmt_ip_cidr: >-
+          {{
+            (ips_for_dev
+             | selectattr('assigned_object.name','equalto','ether2')
+             | map(attribute='address') | list | first) | default('')
+          }}
+        wg_ip_cidr: >-
+          {{
+            (ips_for_dev
+             | selectattr('assigned_object.name','equalto','wg0')
+             | map(attribute='address') | list | first) | default('')
+          }}
+        mgmt_ip: "{{ (mgmt_ip_cidr.split('/')[0]) if mgmt_ip_cidr else '' }}"
+      ansible.builtin.add_host:
+        name: "{{ dev_name }}"
+        groups: ["nb_mikrotik"]
+        ansible_host: "{{ mgmt_ip }}"
+        ansible_connection: network_cli
+        ansible_network_os: community.routeros.routeros
+        ansible_user: "{{ router_user }}"
+        ansible_password: "{{ router_password }}"
+        desired_identity: "{{ dev_name }}"
+        apply_mgmt_ip: "{{ mgmt_ip_cidr }}"
+        apply_wg_ip:   "{{ wg_ip_cidr }}"
+        netbox_id: "{{ dev_id }}"
+      loop: "{{ dev_list }}"
+      when: mgmt_ip != ''
+
+    - name: Debug runtime hosts (проверка)
+      ansible.builtin.debug:
+        var: hostvars
+      when: false  # включи при отладке
+
+- name: Push hostname and IPs onto MikroTik
+  hosts: nb_mikrotik
+  gather_facts: no
+
+  tasks:
+    - name: Set system identity to NetBox device name
+      community.routeros.command:
+        commands:
+          - /system/identity/set name={{ hostvars[inventory_hostname].desired_identity }}
+
+    - name: Ensure mgmt IP exists on ether2 (idempotent)
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip/address/find where address="{{ hostvars[inventory_hostname].apply_mgmt_ip }}" and interface="ether2"]] = 0) do={
+              /ip/address/add address={{ hostvars[inventory_hostname].apply_mgmt_ip }} interface=ether2
+            }
+      when:
+        - hostvars[inventory_hostname].apply_mgmt_ip is defined
+        - hostvars[inventory_hostname].apply_mgmt_ip|length > 0
+
+    - name: Ensure WG IP exists on wg0 (idempotent)
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip/address/find where address="{{ hostvars[inventory_hostname].apply_wg_ip }}" and interface="wg0"]] = 0) do={
+              /ip/address/add address={{ hostvars[inventory_hostname].apply_wg_ip }} interface=wg0
+            }
+      when:
+        - hostvars[inventory_hostname].apply_wg_ip is defined
+        - hostvars[inventory_hostname].apply_wg_ip|length > 0

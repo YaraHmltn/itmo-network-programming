@@ -1,0 +1,86 @@
+---
+- name: Seed NetBox with lab data
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    ansible_python_interpreter: ~/.venvs/ansible-nb/bin/python
+
+  vars_files:
+    - group_vars/netbox.yml
+
+  collections:
+    - netbox.netbox
+
+  tasks:
+    - name: Ensure site
+      netbox_site:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ site_name }}"
+          slug: "{{ site_name }}"
+        state: present
+
+    - name: Ensure tenant
+      netbox_tenant:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ tenant_name }}"
+          slug: "{{ tenant_name | lower }}"
+        state: present
+
+    - name: Ensure role
+      netbox_device_role:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ role_name }}"
+          slug: "{{ role_name }}"
+        state: present
+
+    - name: Ensure manufacturer
+      netbox_manufacturer:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ manuf_name }}"
+          slug: "{{ manuf_name | lower }}"
+        state: present
+
+    - name: Ensure device type
+      netbox_device_type:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          model: "{{ devtype_model }}"
+          slug: "{{ devtype_model | lower }}"
+          manufacturer: "{{ manuf_name }}"
+        state: present
+
+    - name: Ensure platform
+      netbox_platform:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ platform_name }}"
+          slug: "{{ platform_name | lower }}"
+        state: present
+
+    - name: Ensure tag
+      netbox_tag:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "lab3"
+          slug: "lab3"
+        state: present
+
+    # ВАЖНО: вместо block+loop — include_tasks с loop
+    - name: Create devices, interfaces, addresses
+      ansible.builtin.include_tasks: nb_seed_device.yml
+      loop: "{{ devices }}"
+      loop_control:
+        loop_var: d
+

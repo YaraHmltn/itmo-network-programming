@@ -1,0 +1,137 @@
+---
+- name: Build runtime inventory from NetBox
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files:
+    - group_vars/netbox.yml
+    - secret.yml
+
+  vars:
+    nb_filter: "{{ '?limit=0' + ( '&tag=' + nb_tag if (nb_tag|default('')|length>0) else '' ) }}"
+
+  tasks:
+    - name: Get devices (tagged)
+      ansible.builtin.uri:
+        url: "{{ netbox_url | trim('/') }}/api/dcim/devices/{{ nb_filter }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        return_content: yes
+        status_code: 200
+        validate_certs: no
+      register: nb_devs
+
+    - name: Get IP addresses (tagged)
+      ansible.builtin.uri:
+        url: "{{ netbox_url | trim('/') }}/api/ipam/ip-addresses/{{ nb_filter }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        return_content: yes
+        status_code: 200
+        validate_certs: no
+      register: nb_ips
+
+    - name: Add hosts for collection
+      vars:
+        dev_name: "{{ item.name }}"
+        dev_id:   "{{ item.id }}"
+        ips_for_dev: >-
+          {{
+            (nb_ips.json.results | default([]))
+            | selectattr('assigned_object','defined')
+            | selectattr('assigned_object.device','defined')
+            | selectattr('assigned_object.device.name','equalto',dev_name)
+            | list
+          }}
+        mgmt_ip_cidr: >-
+          {{
+            (ips_for_dev
+             | selectattr('assigned_object.name','equalto','ether2')
+             | map(attribute='address') | list | first) | default('')
+          }}
+        mgmt_ip: "{{ (mgmt_ip_cidr.split('/')[0]) if mgmt_ip_cidr else '' }}"
+      ansible.builtin.add_host:
+        name: "{{ dev_name }}"
+        groups: ["nb_mikrotik"]
+        ansible_host: "{{ mgmt_ip }}"
+        ansible_connection: network_cli
+        ansible_network_os: community.routeros.routeros
+        ansible_user: "{{ router_user }}"
+        ansible_password: "{{ router_password }}"
+        netbox_id: "{{ dev_id }}"
+      loop: "{{ nb_devs.json.results | default([]) }}"
+      when: mgmt_ip != ''
+
+- name: Collect serial (or system-id) and write to NetBox
+  hosts: nb_mikrotik
+  gather_facts: no
+  vars_files:
+    - group_vars/netbox.yml
+    - secret.yml
+  vars:
+    detected_serial: ""
+
+  tasks:
+    - name: Try to read RouterBOARD info (has serial-number on HW)
+      community.routeros.command:
+        commands:
+          - /system/routerboard/print without-paging
+      register: rb
+      ignore_errors: yes
+
+    - name: Parse serial-number from RouterBOARD output (if present)
+      ansible.builtin.set_fact:
+        detected_serial: "{{ (rb.stdout[0] | regex_search('serial-number:\\s*([\\w-]+)', '\\1')) | default('', true) }}"
+      when: rb is defined and rb.stdout is defined
+
+    - name: If empty, read system-id from license (CHR case)
+      community.routeros.command:
+        commands:
+          - /system/license/print without-paging
+      register: lic
+      when: detected_serial | length == 0
+
+    - name: Parse system-id as serial fallback
+      ansible.builtin.set_fact:
+        detected_serial: "{{ (lic.stdout[0] | regex_search('system-id:\\s*([A-Za-z0-9-]+)', '\\1')) | default('', true) }}"
+      when:
+        - lic is defined
+        - detected_serial | length == 0
+
+    - name: Normalize serial string (sanitize)
+      ansible.builtin.set_fact:
+        sanitized_serial: >-
+          {{
+            (detected_serial | string | trim)
+            | regex_replace('[^A-Za-z0-9._-]', '')
+            | truncate(64, end='')
+          }}
+
+    - name: Debug sanitized serial
+      ansible.builtin.debug:
+        msg: "Device {{ inventory_hostname }} sanitized_serial='{{ sanitized_serial }}' (raw='{{ detected_serial }}')"
+
+    - name: Fail if sanitized serial is empty
+      ansible.builtin.fail:
+        msg: "Sanitized serial is empty for {{ inventory_hostname }} (raw was '{{ detected_serial }}')"
+      when: sanitized_serial | length == 0
+
+    - name: Update NetBox device.serial via API
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ netbox_url | regex_replace('/+$','') }}/api/dcim/devices/{{ hostvars[inventory_hostname].netbox_id }}/"
+        method: PATCH
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Content-Type: "application/json"
+          Accept: "application/json"
+        body_format: json
+        body:
+          serial: "{{ sanitized_serial }}"
+        status_code: [200, 204]
+        validate_certs: no

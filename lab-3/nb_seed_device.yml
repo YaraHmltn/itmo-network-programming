@@ -1,0 +1,68 @@
+- name: Ensure device {{ d.name }}
+  netbox_device:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      name: "{{ d.name }}"
+      device_role: "{{ role_name }}"
+      device_type: "{{ devtype_model }}"
+      site: "{{ site_name }}"
+      platform: "{{ platform_name }}"
+      tenant: "{{ tenant_name }}"
+      tags: "{{ d.tags }}"
+    state: present
+
+- name: Ensure interface {{ d.wg_iface }} on {{ d.name }}
+  netbox_device_interface:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      device: "{{ d.name }}"
+      name: "{{ d.wg_iface }}"
+      type: virtual
+    state: present
+
+- name: Ensure mgmt interface ether2 on {{ d.name }}
+  netbox_device_interface:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      device: "{{ d.name }}"
+      name: "ether2"
+      type: 1000base-t
+    state: present
+
+- name: Ensure mgmt IP on ether2 ({{ d.mgmt_ip }})
+  netbox_ip_address:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      address: "{{ d.mgmt_ip }}"
+      assigned_object:
+        device: "{{ d.name }}"
+        name: "ether2"
+      status: active
+      tenant: "{{ tenant_name }}"
+    state: present
+
+- name: Ensure wg IP on {{ d.wg_iface }} ({{ d.wg_ip }})
+  netbox_ip_address:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      address: "{{ d.wg_ip }}"
+      assigned_object:
+        device: "{{ d.name }}"
+        name: "{{ d.wg_iface }}"
+      status: active
+      tenant: "{{ tenant_name }}"
+    state: present
+
+- name: Set primary IP (v4) for {{ d.name }}
+  netbox_device:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      name: "{{ d.name }}"
+      primary_ip4: "{{ d.primary_ip }}"
+    state: present

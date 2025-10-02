@@ -1,0 +1,23 @@
+- name: Build URL for {{ ep }}
+  ansible.builtin.set_fact:
+    nb_url: >-
+      {{ (netbox_url.rstrip('/')) + '/api/' + ep +
+         ('?limit=0' + ( '&tag=' + nb_tag if (nb_tag|default('')|length>0) else '' )) }}
+
+- name: GET {{ nb_url }}
+  ansible.builtin.uri:
+    url: "{{ nb_url }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    return_content: yes
+    status_code: 200
+    validate_certs: no
+  register: nb_resp
+
+- name: Save {{ ep }} JSON
+  ansible.builtin.copy:
+    content: "{{ nb_resp.content }}"
+    dest: "./artifacts/netbox-{{ ep | regex_replace('/', '_') }}.json"
+    mode: '0644'

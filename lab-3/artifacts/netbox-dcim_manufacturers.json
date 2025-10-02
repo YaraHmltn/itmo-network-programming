@@ -1,0 +1,1 @@
+{"count":1,"next":null,"previous":null,"results":[{"id":1,"url":"http://127.0.0.1:8000/api/dcim/manufacturers/1/","display":"MikroTik","name":"MikroTik","slug":"mikrotik","description":"","tags":[],"custom_fields":{},"created":"2025-10-02T11:24:32.366151Z","last_updated":"2025-10-02T11:24:32.366160Z","devicetype_count":1,"inventoryitem_count":0,"platform_count":0}]}
