@@ -5,15 +5,12 @@ Faculty: [FICT](https://fict.itmo.ru)
 
 Course: [Network programming](https://github.com/itmo-ict-faculty/network-programming)
 
-Year: 2024/2025
-
-Group: K3320
-
-Author: Gusev Yaroslav
-
-Date of create: 25.06.2025
-
-Date of finished: 25.06.2025
+Year: 2024/2025  
+Group: K3321  
+Author: Vdovina Yaroslava Dmitrievna  
+Lab: Lab3  
+Date of create: 02.10.2025  
+Date of finished: 02.10.2025  
 
 # Лабораторная работа 4
 
