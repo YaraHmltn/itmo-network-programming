@@ -1,0 +1,162 @@
+---
+- name: Lab2
+  hosts: mikrotik
+  gather_facts: no
+  vars_files:
+    - secret.yml
+  vars:
+    ospf_area: "{{ ospf_area | default('backbone') }}"
+    ospf_area_id: "{{ ospf_area_id | default('0.0.0.0') }}"
+    wg_listen_port: "{{ wg_listen_port | default(51820) }}"
+
+  tasks:
+  - name: Ensure ansible user exists
+    community.routeros.command:
+      commands:
+        - :if ([:len [/user/find where name="{{ new_user }}"]] = 0) do={/user/add name="{{ new_user }}" password="{{ new_password }}" group=full} else={/user/set [find where name="{{ new_user }}"] password="{{ new_password }}"}
+    register: user_res
+
+  - name: Configure NTP client
+    community.routeros.command:
+      commands:
+        - /system/ntp/client/set enabled=yes server-dns-names={{ ntp_servers | join(",") }}
+
+  - name: Ensure OSPF instance exists with Router-ID
+    community.routeros.command:
+      commands:
+        - :if ([:len [/routing/ospf/instance/find where name=default]] = 0) do={/routing/ospf/instance/add name=default router-id={{ router_id }}}
+          else={/routing/ospf/instance/set [find where name=default] router-id={{ router_id }}}
+
+  - name: Ensure OSPF area backbone exists
+    community.routeros.command:
+      commands:
+        - :if ([:len [/routing/ospf/area/find where name={{ ospf_area }}]] = 0) do={/routing/ospf/area/add name={{ ospf_area }} area-id={{ ospf_area_id }} instance=default}
+
+  - name: Cleanup old OSPF templates for wg0
+    community.routeros.command:
+      commands:
+        - /routing/ospf/interface-template/remove [find where interfaces="wg0"]
+        - /routing/ospf/interface-template/remove [find where networks~"10.10.0." || networks~"10.100.0."]
+
+  - name: Add OSPF interface-template for wg0 as ptp
+    community.routeros.command:
+      commands:
+        - /routing/ospf/interface-template/add interfaces=wg0 area={{ ospf_area }}
+        - /routing/ospf/interface-template/set [find where interfaces="wg0" and area="{{ ospf_area }}"] type=ptp
+        - /routing/ospf/interface-template/set [find where interfaces="wg0" and area="{{ ospf_area }}"] priority=255
+
+  - name: Bounce dynamic OSPF interface for wg0 to apply template if exists
+    community.routeros.command:
+      commands:
+        - /routing/ospf/interface-template/disable [find where interfaces="wg0" and area="{{ ospf_area }}"]
+        - :delay 1s
+        - /routing/ospf/interface-template/enable [find where interfaces="wg0" and area="{{ ospf_area }}"]
+
+  - name: Restart OSPF instance to re-evaluate templates
+    community.routeros.command:
+      commands:
+        - /routing/ospf/instance/disable [find name=default]
+        - :delay 2s
+        - /routing/ospf/instance/enable [find name=default]
+        - :delay 5s
+
+  - name: Ensure WG peers allow OSPF multicast
+    community.routeros.command:
+      commands:
+        - /interface/wireguard/peers/set [find where interface=wg0] allowed-address="10.100.0.0/30,224.0.0.0/24"
+
+  - name: Allow OSPF in input
+    community.routeros.command:
+      commands:
+        - :if ([:len [/ip/firewall/filter/find where chain=input and protocol=ospf]] = 0) do={/ip/firewall/filter/add chain=input protocol=ospf action=accept comment="allow OSPF"}
+
+  - name: Allow WireGuard UDP in input (listen side)
+    community.routeros.command:
+      commands:
+        - :if ([:len [/ip/firewall/filter/find where chain=input and protocol=udp and dst-port={{ wg_listen_port }}]] = 0) do={/ip/firewall/filter/add chain=input protocol=udp dst-port={{ wg_listen_port }} action=accept comment="allow wg"}
+
+  - name: Wait for OSPF to reach Full
+    community.routeros.command:
+      commands:
+        - /routing/ospf/neighbor/print terse without-paging
+    register: nei
+    until: "'state=Ful' in (nei.stdout[0] | default(''))"
+    retries: 18
+    delay: 10
+
+  - name: Collect RouterOS facts (incl. OSPF)
+    community.routeros.facts:
+      gather_subset:
+        - all
+
+  - name: Show OSPF neighbors (facts)
+    debug:
+      var: ansible_net_ospf_neighbor
+
+  - name: Show OSPF neighbors (raw)
+    community.routeros.command:
+      commands:
+        - /routing/ospf/neighbor/print detail without-paging
+    register: ospf_nei_raw
+
+  - name: Show OSPF interfaces (raw)
+    community.routeros.command:
+      commands:
+        - /routing/ospf/interface/print detail without-paging
+    register: ospf_intf_raw
+
+  - name: Show OSPF LSDB (raw)
+    community.routeros.command:
+      commands:
+        - /routing/ospf/database/print detail without-paging
+    register: ospf_db_raw
+
+  - name: Show routes learned by OSPF
+    community.routeros.command:
+      commands:
+        - /ip/route/print detail without-paging where protocol=ospf
+    register: ospf_routes_raw
+
+  - name: Export full config (with sensitive) for report
+    community.routeros.command:
+      commands:
+        - /export show-sensitive terse
+    register: export_cfg
+
+  - name: Ensure local artifacts dir exists
+    ansible.builtin.file:
+      path: ./artifacts
+      state: directory
+      mode: '0755'
+    delegate_to: localhost
+    run_once: true
+
+  - name: Save outputs to files (neighbors)
+    copy:
+      content: "{{ ospf_nei_raw.stdout[0] | default('') }}"
+      dest: "./artifacts/{{ inventory_hostname }}-ospf-neighbors.txt"
+    delegate_to: localhost
+
+  - name: Save outputs to files (interfaces)
+    copy:
+      content: "{{ ospf_intf_raw.stdout[0] | default('') }}"
+      dest: "./artifacts/{{ inventory_hostname }}-ospf-interfaces.txt"
+    delegate_to: localhost
+
+  - name: Save outputs to files (database)
+    copy:
+      content: "{{ ospf_db_raw.stdout[0] | default('') }}"
+      dest: "./artifacts/{{ inventory_hostname }}-ospf-database.txt"
+    delegate_to: localhost
+
+  - name: Save outputs to files (routes)
+    copy:
+      content: "{{ ospf_routes_raw.stdout[0] | default('') }}"
+      dest: "./artifacts/{{ inventory_hostname }}-ospf-routes.txt"
+    delegate_to: localhost
+
+  - name: Save full config export
+    copy:
+      content: "{{ export_cfg.stdout[0] | default('') }}"
+      dest: "./artifacts/{{ inventory_hostname }}-export.rsc"
+    delegate_to: localhost
