@@ -10,10 +10,10 @@ Date of finished: 02.10.2025
 
 ## Работа с NetBox
 - Был развёрнут NetBox с помощью docker compose по адресу http://127.0.0.1:8000 (локально)
-![Скриншот 1](images/1.jpg)
+![Скриншот 1](images/1.png)
 - В нетбоксе была заполнена информация о двух микротиках: Site, Tenant, Manufacturer (MikroTik), Device Type (CHR), Platform (RouterOS), Role (router), Tag (lab3)
 ## Ансибл сценарии
-![Скриншот 4](images/4.jpg)
+![Скриншот 4](images/4.png)
 - nb_seed.yml — заполняет NetBox начальными объектами (site, manufacturer, device type, devices, interfaces, IP)
 ![Скриншот 2](images/2.png)
 ![Скриншот 3](images/3.png)
@@ -28,3 +28,4 @@ Date of finished: 02.10.2025
 ![Скриншот 10](images/10.png)
 ![Скриншот 11](images/11.png)
 ![Скриншот 12](images/12.png)
+
