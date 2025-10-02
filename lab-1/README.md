@@ -1,4 +1,12 @@
-# Лабораторная работа 1
+University: [ITMO University](https://itmo.ru/ru/)
+Faculty: [FICT](https://fict.itmo.ru)
+Course: [Network programming](https://github.com/itmo-ict-faculty/network-programming)
+Year: 2024/2025
+Group: K3321
+Author: Vdovina Yaroslava Dmitrievna
+Lab: Lab1
+Date of create: 02.10.2025
+Date of finished: 02.10.2025
 
 ## Настройка сервера
 - Вместо облачного сервера развернула виртуальную машину с убунтой в виртуал боксе
@@ -20,3 +28,4 @@
 - Пинги с убунты и микротика:
 ![Скриншот 10](images/10.jpg)
 ![Скриншот 11](images/11.jpg)
+
